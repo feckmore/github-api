@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/google/go-github/github"
 	"github.com/gorilla/mux"
@@ -42,6 +43,8 @@ func NewRouter(data *datastore) http.Handler {
 	r := mux.NewRouter()
 
 	r.Methods("GET").Path("/{owner}/repos/count").Handler(GetCount(data))
+	r.Methods("POST").Path("/{owner}/repos/{repo}/{commit}/comment").Handler(CommitComment(data))
+	r.Methods("POST").Path("/{owner}/pulls/{number:[0-9]+}/{commit}/{path}/{position:[0-9]+}/comment").Handler(PullComment(data))
 
 	return r
 }
@@ -83,6 +86,63 @@ func GetCount(data *datastore) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		err = json.NewEncoder(w).Encode(len(repos))
 		WriteError(w, err)
+	}
+}
+
+func CommitComment(data *datastore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		owner := vars["owner"]
+		repo := vars["repo"]
+		commit := vars["commit"]
+
+		user, _, err := data.Client.Users.Get(context.Background(), owner)
+		if WriteError(w, err) {
+			return
+		}
+
+		msg := "Commit message... replace me with message taken from request body."
+		newComment := &github.RepositoryComment{
+			CommitID: github.String(commit),
+			User:     user,
+			Body:     github.String(msg),
+			Position: github.Int(1),
+		}
+		data.Client.Repositories.CreateComment(context.Background(), owner, repo, commit, newComment)
+	}
+}
+
+func PullComment(data *datastore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		owner := vars["owner"]
+		repo := vars["repo"]
+		number, _ := strconv.Atoi(vars["number"])
+		commit := vars["commit"]
+		path := vars["path"]
+		position, _ := strconv.Atoi(vars["position"])
+
+		msg := "hard coded comment message"
+
+		user, _, err := data.Client.Users.Get(context.Background(), owner)
+		if WriteError(w, err) {
+			return
+		}
+
+		newComment := &github.PullRequestComment{
+			// ID:       &id,
+			Body:     &msg,
+			User:     user,
+			Path:     github.String(path),
+			Position: github.Int(position),
+			CommitID: github.String(commit),
+		}
+
+		cmt, _, err := data.Client.PullRequests.CreateComment(context.Background(), owner, repo, number, newComment)
+		if err != nil {
+			fmt.Println(err)
+		}
+		fmt.Println(cmt)
 	}
 }
 
